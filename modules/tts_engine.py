@@ -35,7 +35,7 @@ class TTSEngine:
         # Set volume level
         self.engine.setProperty("volume", volume)
 
-    def speak(self, text):
+    def Speak_text (self, text):
         """
         Convert text into speech.
 
