@@ -2,4 +2,5 @@ mediapipe==0.10.9
 opencv
 opencv-contrib
 numpy
-python <3.12 & python >3.10
+python <3.12 & python >3.10  
+pyttsx3==2.99
