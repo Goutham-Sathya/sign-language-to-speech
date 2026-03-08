@@ -1,111 +1,81 @@
-"""
-train.py
-
-This script trains the gesture recognition model.
-
-"""
-
 import os
-import cv2
 import numpy as np
-import pickle
+import joblib
 
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 
-
-# Path to dataset
-DATASET_PATH = "dataset"
-
-# Path where trained model will be saved
-MODEL_PATH = "models/gesture_model.pkl"
-
-# Image size used during training
-IMG_SIZE = 224
-
+DATASET_DIR = "dataset"
 
 def load_dataset():
-    """
-    Loads images from dataset folder and converts them into training data.
-    """
 
-    X = []  # features
-    y = []  # labels
-
-    gestures = os.listdir(DATASET_PATH)
+    X = []
+    y = []
 
     print("Loading dataset...\n")
 
-    for gesture in gestures:
+    #comment go through each gesture folder
+    for gesture in os.listdir(DATASET_DIR):
 
-        gesture_folder = os.path.join(DATASET_PATH, gesture)
+        gesture_path = os.path.join(DATASET_DIR, gesture)
 
-        if not os.path.isdir(gesture_folder):
+        if not os.path.isdir(gesture_path):
             continue
 
-        print(f"Processing gesture: {gesture}")
+        print("Loading:", gesture)
 
-        for img_name in os.listdir(gesture_folder):
+        for file in os.listdir(gesture_path):
 
-            img_path = os.path.join(gesture_folder, img_name)
+            if file.endswith(".npy"):
 
-            img = cv2.imread(img_path)
+                file_path = os.path.join(gesture_path, file)
 
-            if img is None:
-                continue
+                data = np.load(file_path)
 
-            # Resize to fixed size
-            img = cv2.resize(img, (IMG_SIZE, IMG_SIZE))
-
-            # Flatten image to 1D vector
-            img = img.flatten()
-
-            X.append(img)
-            y.append(gesture)
+                X.append(data)
+                y.append(gesture)
 
     return np.array(X), np.array(y)
 
 
 def train_model(X, y):
-    """
-    Train RandomForest classifier
-    """
 
-    print("\nTraining model...")
-
-    model = RandomForestClassifier(
-        n_estimators=100,
-        random_state=42
+    #comment split dataset
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2
     )
 
-    model.fit(X, y)
+    #comment model
+    model = RandomForestClassifier(n_estimators=100)
 
-    print("Training complete")
+    print("\nTraining model...")
+    model.fit(X_train, y_train)
+
+    preds = model.predict(X_test)
+
+    acc = accuracy_score(y_test, preds)
+
+    print("Accuracy:", acc)
 
     return model
-
-
-def save_model(model):
-    """
-    Save trained model to file
-    """
-
-    os.makedirs("models", exist_ok=True)
-
-    with open(MODEL_PATH, "wb") as f:
-        pickle.dump(model, f)
-
-    print(f"Model saved to {MODEL_PATH}")
 
 
 def main():
 
     X, y = load_dataset()
 
-    print(f"\nTotal samples: {len(X)}")
+    print("\nTotal samples:", len(X))
+
+    if len(X) == 0:
+        print("Dataset is empty. Capture gestures first.")
+        return
 
     model = train_model(X, y)
 
-    save_model(model)
+    joblib.dump(model, "gesture_model.pkl")
+
+    print("Model saved as gesture_model.pkl")
 
 
 if __name__ == "__main__":
