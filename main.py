@@ -1,92 +1,153 @@
-"""
-main.py
-
-Real-time gesture recognition using RAW IMAGE training.
-The frame is resized and flattened before prediction
-because the model was trained on flattened images.
-"""
-
 import cv2
 import pickle
-import time
+import json
+import mediapipe as mp
 
-from modules.tts_engine import speak
-
-
-# -------- Model path --------
-MODEL_PATH = "models/gesture_model.pkl"
+from modules.tts_engine import TTSEngine
 
 
-# -------- Load trained model --------
-with open(MODEL_PATH, "rb") as f:
+# -------- Load model --------
+with open("models/gesture_model.pkl", "rb") as f:
     model = pickle.load(f)
 
-print("Model loaded successfully")
+print("Model loaded")
 
 
-# -------- Camera setup --------
+# -------- Load labels --------
+with open("models/gestures.json", "r") as f:
+    labels = json.load(f)
+
+
+# -------- TTS --------
+tts = TTSEngine()
+
+
+# -------- MediaPipe --------
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(
+    max_num_hands=1,
+    min_detection_confidence=0.7,
+    min_tracking_confidence=0.6
+)
+
+mp_draw = mp.solutions.drawing_utils
+
+
+# -------- Camera --------
 cap = cv2.VideoCapture(0)
 
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
+# -------- Gesture stability --------
+gesture_buffer = []
+buffer_size = 5
 
-# -------- Control speech repetition --------
 last_spoken = ""
-last_time = 0
-speech_delay = 2
 
 
 while True:
 
     ret, frame = cap.read()
-
     if not ret:
-        print("Camera failure. Hardware occasionally enjoys rebellion.")
         break
 
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    # Resize image to same size used during training
-    img = cv2.resize(frame, (224, 224))
+    results = hands.process(frame_rgb)
 
-
-    # Flatten image to 1D vector
-    img = img.flatten()
-
-
-    # Predict gesture
-    prediction = model.predict([img])[0]
+    prediction = ""
+    hand_detected = False
 
 
-    # Display prediction
-    cv2.putText(
-        frame,
-        prediction,
-        (20, 60),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1.5,
-        (0, 255, 0),
-        3
-    )
+    if results.multi_hand_landmarks:
+
+        hand_detected = True
+
+        for hand_landmarks in results.multi_hand_landmarks:
+
+            mp_draw.draw_landmarks(
+                frame,
+                hand_landmarks,
+                mp_hands.HAND_CONNECTIONS
+            )
+
+            h, w, _ = frame.shape
+
+            x_list = []
+            y_list = []
+
+            for lm in hand_landmarks.landmark:
+                x_list.append(int(lm.x * w))
+                y_list.append(int(lm.y * h))
+
+            xmin, xmax = min(x_list), max(x_list)
+            ymin, ymax = min(y_list), max(y_list)
+
+            padding = 40
+
+            xmin = max(0, xmin-padding)
+            ymin = max(0, ymin-padding)
+            xmax = min(w, xmax+padding)
+            ymax = min(h, ymax+padding)
+
+            hand_crop = frame[ymin:ymax, xmin:xmax]
+
+            img = cv2.resize(hand_crop, (224,224))
+            img = img.flatten()
+
+            pred_index = model.predict([img])[0]
+
+            prediction = labels[str(pred_index)]
 
 
-    # Speech control (avoid repeating every frame)
-    current_time = time.time()
+    # -------- Stability Buffer --------
+    if prediction != "":
+        gesture_buffer.append(prediction)
 
-    if prediction != last_spoken and current_time - last_time > speech_delay:
+        if len(gesture_buffer) > buffer_size:
+            gesture_buffer.pop(0)
 
-        print("Detected:", prediction)
+    else:
+        gesture_buffer.clear()
 
-        speak(prediction)
 
-        last_spoken = prediction
-        last_time = current_time
+    stable_prediction = ""
+
+    if len(gesture_buffer) == buffer_size and len(set(gesture_buffer)) == 1:
+        stable_prediction = gesture_buffer[0]
+
+
+    # -------- Display --------
+    if stable_prediction != "":
+        cv2.putText(
+            frame,
+            stable_prediction,
+            (20,60),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.5,
+            (0,255,0),
+            3
+        )
+
+
+    # -------- Speak when gesture changes --------
+    if stable_prediction != "" and stable_prediction != last_spoken:
+
+        print("Detected:", stable_prediction)
+
+        tts.Speak_text(stable_prediction)
+
+        last_spoken = stable_prediction
+
+
+    # Reset if hand disappears
+    if not hand_detected:
+        last_spoken = ""
+        gesture_buffer.clear()
 
 
     cv2.imshow("Gesture Recognition", frame)
 
 
-    # ESC key to exit
     if cv2.waitKey(1) & 0xFF == 27:
         break
 
