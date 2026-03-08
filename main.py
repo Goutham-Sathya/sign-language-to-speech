@@ -1,156 +1,104 @@
 import cv2
-import pickle
-import json
 import mediapipe as mp
+import numpy as np
+import joblib
+import pyttsx3
 
-from modules.tts_engine import TTSEngine
+#comment load trained model
+model = joblib.load("gesture_model.pkl")
 
+#comment initialize TTS
+engine = pyttsx3.init()
 
-# -------- Load model --------
-with open("models/gesture_model.pkl", "rb") as f:
-    model = pickle.load(f)
+def speak(text):
+    engine.say(text)
+    engine.runAndWait()
 
-print("Model loaded")
-
-
-# -------- Load labels --------
-with open("models/gestures.json", "r") as f:
-    labels = json.load(f)
-
-
-# -------- TTS --------
-tts = TTSEngine()
-
-
-# -------- MediaPipe --------
+#comment mediapipe setup
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(
+    static_image_mode=False,
     max_num_hands=1,
-    min_detection_confidence=0.7,
-    min_tracking_confidence=0.6
+    min_detection_confidence=0.7
 )
 
 mp_draw = mp.solutions.drawing_utils
 
-
-# -------- Camera --------
+#comment open webcam
 cap = cv2.VideoCapture(0)
 
+previous_gesture = None
+CONFIDENCE_THRESHOLD = 0.75
 
-# -------- Gesture stability --------
-gesture_buffer = []
-buffer_size = 5
-
-last_spoken = ""
-
-
-while True:
+while cap.isOpened():
 
     ret, frame = cap.read()
     if not ret:
         break
 
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    frame = cv2.flip(frame, 1)
 
-    results = hands.process(frame_rgb)
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = hands.process(rgb)
 
-    prediction = ""
-    hand_detected = False
-
+    current_gesture = None
+    confidence = 0
 
     if results.multi_hand_landmarks:
 
-        hand_detected = True
-
         for hand_landmarks in results.multi_hand_landmarks:
 
-            mp_draw.draw_landmarks(
-                frame,
-                hand_landmarks,
-                mp_hands.HAND_CONNECTIONS
-            )
+            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
-            h, w, _ = frame.shape
-
-            x_list = []
-            y_list = []
+            #comment extract landmarks
+            landmarks = []
 
             for lm in hand_landmarks.landmark:
-                x_list.append(int(lm.x * w))
-                y_list.append(int(lm.y * h))
+                landmarks.append(lm.x)
+                landmarks.append(lm.y)
+                landmarks.append(lm.z)
 
-            xmin, xmax = min(x_list), max(x_list)
-            ymin, ymax = min(y_list), max(y_list)
+            landmarks = np.array(landmarks).reshape(1, -1)
 
-            padding = 40
+            #comment get prediction probabilities
+            probs = model.predict_proba(landmarks)[0]
+            index = np.argmax(probs)
 
-            xmin = max(0, xmin-padding)
-            ymin = max(0, ymin-padding)
-            xmax = min(w, xmax+padding)
-            ymax = min(h, ymax+padding)
+            confidence = probs[index]
+            gesture = model.classes_[index]
 
-            hand_crop = frame[ymin:ymax, xmin:xmax]
+            if confidence > CONFIDENCE_THRESHOLD:
+                current_gesture = gesture
+            else:
+                current_gesture = "Unknown"
 
-            img = cv2.resize(hand_crop, (224,224))
-            img = img.flatten()
-
-            pred_index = model.predict([img])[0]
-
-            prediction = labels[str(pred_index)]
-
-
-    # -------- Stability Buffer --------
-    if prediction != "":
-        gesture_buffer.append(prediction)
-
-        if len(gesture_buffer) > buffer_size:
-            gesture_buffer.pop(0)
+            cv2.putText(
+                frame,
+                f"{current_gesture} ({confidence:.2f})",
+                (10,40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (0,255,0),
+                2
+            )
 
     else:
-        gesture_buffer.clear()
+        #comment reset when hand leaves frame
+        previous_gesture = None
 
+    #comment speak only when gesture changes
+    if current_gesture != previous_gesture and current_gesture not in [None, "Unknown"]:
 
-    stable_prediction = ""
+        print("Detected:", current_gesture)
 
-    if len(gesture_buffer) == buffer_size and len(set(gesture_buffer)) == 1:
-        stable_prediction = gesture_buffer[0]
+        speak(current_gesture)
 
-
-    # -------- Display --------
-    if stable_prediction != "":
-        cv2.putText(
-            frame,
-            stable_prediction,
-            (20,60),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1.5,
-            (0,255,0),
-            3
-        )
-
-
-    # -------- Speak when gesture changes --------
-    if stable_prediction != "" and stable_prediction != last_spoken:
-
-        print("Detected:", stable_prediction)
-
-        tts.Speak_text(stable_prediction)
-
-        last_spoken = stable_prediction
-
-
-    # Reset if hand disappears
-    if not hand_detected:
-        last_spoken = ""
-        gesture_buffer.clear()
-
+        previous_gesture = current_gesture
 
     cv2.imshow("Gesture Recognition", frame)
 
-
     if cv2.waitKey(1) & 0xFF == 27:
         break
-
 
 cap.release()
 cv2.destroyAllWindows()
