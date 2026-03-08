@@ -37,6 +37,9 @@ cap = cv2.VideoCapture(0)
 count = 0
 TARGET = 100
 
+#comment capture starts only after pressing C
+capturing = False
+
 while cap.isOpened():
 
     ret, frame = cap.read()
@@ -48,7 +51,8 @@ while cap.isOpened():
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = hands.process(rgb)
 
-    if results.multi_hand_landmarks:
+    #comment detect landmarks only if capturing started
+    if results.multi_hand_landmarks and capturing:
 
         for hand_landmarks in results.multi_hand_landmarks:
 
@@ -71,15 +75,33 @@ while cap.isOpened():
             count += 1
             print("Saved:", count)
 
+    #comment show counter
     cv2.putText(frame, f"{count}/{TARGET}", (10,40),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
 
+    #comment show instruction if not capturing yet
+    if not capturing:
+        cv2.putText(frame, "Press C to start capture",
+                    (10,80),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0,255,255),
+                    2)
+
     cv2.imshow("Capture", frame)
 
-    if count >= TARGET:
+    key = cv2.waitKey(1) & 0xFF
+
+    #comment start capturing when C is pressed
+    if key == ord('c'):
+        capturing = True
+        print("Capture started")
+
+    #comment exit with ESC
+    if key == 27:
         break
 
-    if cv2.waitKey(1) & 0xFF == 27:
+    if count >= TARGET:
         break
 
 cap.release()
