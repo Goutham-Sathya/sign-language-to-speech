@@ -40,7 +40,7 @@ mp_draw = mp.solutions.drawing_utils
 cap = cv2.VideoCapture(0)
 
 count = 0
-max_images = 70
+max_images = 100
 capture_mode = False
 
 
@@ -78,7 +78,7 @@ while True:
             xmin, xmax = min(x_list), max(x_list)
             ymin, ymax = min(y_list), max(y_list)
 
-            padding = 20
+            padding = 40
 
             xmin = max(0, xmin - padding)
             ymin = max(0, ymin - padding)
