@@ -1,120 +1,107 @@
 import cv2
-import os
-import csv
 import mediapipe as mp
+import numpy as np
+import os
+import sys
 
-# ask user for gesture name
-gesture_name = input("Enter gesture name: ").strip().replace(" ","_")
+#comment check if user provided gesture name
+if len(sys.argv) != 2:
+    print("Usage: python3 capture.py <gesture_name>")
+    exit()
 
-# create dataset folder if it doesn't exist
-os.makedirs("dataset", exist_ok=True)
+gesture_name = sys.argv[1]
 
-# dataset file
-file_path = "dataset/landmarks.csv"
+#comment dataset root directory
+DATASET_DIR = "dataset"
 
-# initialize mediapipe hand detection
+#comment create dataset directory if it doesn't exist
+if not os.path.exists(DATASET_DIR):
+    os.makedirs(DATASET_DIR)
+
+#comment create gesture directory
+gesture_dir = os.path.join(DATASET_DIR, gesture_name)
+
+if not os.path.exists(gesture_dir):
+    os.makedirs(gesture_dir)
+
+print("Saving data to:", gesture_dir)
+
+#comment mediapipe hand setup
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(
+    static_image_mode=False,
     max_num_hands=1,
     min_detection_confidence=0.7
 )
 
-# utility for drawing landmarks
 mp_draw = mp.solutions.drawing_utils
 
-# open webcam
+#comment open camera
 cap = cv2.VideoCapture(0)
 
-# capture counters
 count = 0
-max_samples = 100
+target_samples = 100
 
-# capture mode flag
-capture_mode = False
+while cap.isOpened():
 
-print("Press C to start automatic capture")
-
-while True:
-
-    # read camera frame
     ret, frame = cap.read()
     if not ret:
         break
 
-    # convert to RGB
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    #comment flip for natural camera view
+    frame = cv2.flip(frame, 1)
 
-    # detect hand
-    results = hands.process(frame_rgb)
+    #comment convert to RGB
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    results = hands.process(rgb)
 
     if results.multi_hand_landmarks:
 
         for hand_landmarks in results.multi_hand_landmarks:
 
-            # draw landmarks on screen
-            mp_draw.draw_landmarks(
-                frame,
-                hand_landmarks,
-                mp_hands.HAND_CONNECTIONS
-            )
+            #comment draw landmarks on screen
+            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
-            # automatically capture when mode is active
-            if capture_mode and count < max_samples:
+            #comment extract landmark coordinates
+            landmarks = []
 
-                landmark_row = []
+            for lm in hand_landmarks.landmark:
+                landmarks.append(lm.x)
+                landmarks.append(lm.y)
+                landmarks.append(lm.z)
 
-                # extract x,y,z coordinates of all 21 landmarks
-                for lm in hand_landmarks.landmark:
-                    landmark_row.append(lm.x)
-                    landmark_row.append(lm.y)
-                    landmark_row.append(lm.z)
+            landmarks = np.array(landmarks)
 
-                # append gesture label
-                landmark_row.append(gesture_name)
+            #comment save landmark file
+            file_path = os.path.join(gesture_dir, f"{count}.npy")
+            np.save(file_path, landmarks)
 
-                # save to csv
-                with open(file_path, "a", newline="") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(landmark_row)
+            count += 1
 
-                count += 1
+            print("Saved sample:", count)
 
-                print("Captured:", count)
-
-                # small delay so frames are slightly different
-                cv2.waitKey(80)
-
-                # stop when 100 samples reached
-                if count >= max_samples:
-                    print("Captured 100 samples successfully")
-                    cap.release()
-                    cv2.destroyAllWindows()
-                    exit()
-
-    # show capture count
+    #comment display counter
     cv2.putText(
         frame,
-        f"Samples: {count}/100",
-        (10,30),
+        f"Samples: {count}/{target_samples}",
+        (10,40),
         cv2.FONT_HERSHEY_SIMPLEX,
         1,
         (0,255,0),
         2
     )
 
-    # show camera window
-    cv2.imshow("Capture Landmarks", frame)
+    cv2.imshow("Capture", frame)
 
-    key = cv2.waitKey(1) & 0xFF
+    #comment stop if 100 samples collected
+    if count >= target_samples:
+        break
 
-    # press C once to start auto capture
-    if key == ord('c'):
-        capture_mode = True
-        print("Auto capture started")
-
-    # ESC exits
-    if key == 27:
+    if cv2.waitKey(1) & 0xFF == 27:
         break
 
 cap.release()
 cv2.destroyAllWindows()
+
+print("Finished collecting samples.")
