@@ -2,31 +2,26 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import os
-import sys
 
-#comment check if user provided gesture name
-if len(sys.argv) != 2:
-    print("Usage: python3 capture.py <gesture_name>")
-    exit()
+#comment ask user for gesture name
+gesture_name = input("Enter gesture name: ").strip()
 
-gesture_name = sys.argv[1]
-
-#comment dataset root directory
+#comment dataset directory
 DATASET_DIR = "dataset"
 
-#comment create dataset directory if it doesn't exist
+#comment create dataset directory if missing
 if not os.path.exists(DATASET_DIR):
     os.makedirs(DATASET_DIR)
 
-#comment create gesture directory
+#comment create gesture folder
 gesture_dir = os.path.join(DATASET_DIR, gesture_name)
 
 if not os.path.exists(gesture_dir):
     os.makedirs(gesture_dir)
 
-print("Saving data to:", gesture_dir)
+print("Saving samples to:", gesture_dir)
 
-#comment mediapipe hand setup
+#comment mediapipe setup
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(
     static_image_mode=False,
@@ -36,11 +31,11 @@ hands = mp_hands.Hands(
 
 mp_draw = mp.solutions.drawing_utils
 
-#comment open camera
+#comment open webcam
 cap = cv2.VideoCapture(0)
 
 count = 0
-target_samples = 100
+TARGET = 100
 
 while cap.isOpened():
 
@@ -48,22 +43,18 @@ while cap.isOpened():
     if not ret:
         break
 
-    #comment flip for natural camera view
     frame = cv2.flip(frame, 1)
 
-    #comment convert to RGB
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
     results = hands.process(rgb)
 
     if results.multi_hand_landmarks:
 
         for hand_landmarks in results.multi_hand_landmarks:
 
-            #comment draw landmarks on screen
             mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
-            #comment extract landmark coordinates
+            #comment extract 21 landmarks (x,y,z)
             landmarks = []
 
             for lm in hand_landmarks.landmark:
@@ -78,24 +69,14 @@ while cap.isOpened():
             np.save(file_path, landmarks)
 
             count += 1
+            print("Saved:", count)
 
-            print("Saved sample:", count)
-
-    #comment display counter
-    cv2.putText(
-        frame,
-        f"Samples: {count}/{target_samples}",
-        (10,40),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1,
-        (0,255,0),
-        2
-    )
+    cv2.putText(frame, f"{count}/{TARGET}", (10,40),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
 
     cv2.imshow("Capture", frame)
 
-    #comment stop if 100 samples collected
-    if count >= target_samples:
+    if count >= TARGET:
         break
 
     if cv2.waitKey(1) & 0xFF == 27:
@@ -104,4 +85,4 @@ while cap.isOpened():
 cap.release()
 cv2.destroyAllWindows()
 
-print("Finished collecting samples.")
+print("Capture finished")
