@@ -1,142 +1,120 @@
-"""
-capture.py
-
-Captures hand gesture images for dataset creation.
-
-Features:
-- Detects hand using MediaPipe
-- Crops only the hand region
-- Resizes to 224x224
-- Automatically captures 70 images after pressing 'c'
-"""
-
 import cv2
 import os
+import csv
 import mediapipe as mp
 
-# Ask user for gesture name
-gesture_name = input("Enter gesture name: ").strip().replace(" ", "_")
+# ask user for gesture name
+gesture_name = input("Enter gesture name: ").strip().replace(" ","_")
 
-dataset_path = os.path.join("dataset", gesture_name)
+# create dataset folder if it doesn't exist
+os.makedirs("dataset", exist_ok=True)
 
-os.makedirs(dataset_path, exist_ok=True)
+# dataset file
+file_path = "dataset/landmarks.csv"
 
-print(f"\nSaving images to: {dataset_path}")
-print("Press 'c' to start automatic capture")
-print("Press 'q' to quit\n")
-
-
-# -------- MediaPipe Setup --------
+# initialize mediapipe hand detection
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(
     max_num_hands=1,
     min_detection_confidence=0.7
 )
 
+# utility for drawing landmarks
 mp_draw = mp.solutions.drawing_utils
 
-
-# -------- Camera Setup --------
+# open webcam
 cap = cv2.VideoCapture(0)
 
+# capture counters
 count = 0
-max_images = 100
+max_samples = 100
+
+# capture mode flag
 capture_mode = False
 
+print("Press C to start automatic capture")
 
 while True:
 
+    # read camera frame
     ret, frame = cap.read()
-
     if not ret:
-        print("Camera failed.")
         break
 
+    # convert to RGB
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
+    # detect hand
     results = hands.process(frame_rgb)
 
-    h, w, _ = frame.shape
-
-    cropped_hand = None
-
-
-    # -------- Detect Hand --------
     if results.multi_hand_landmarks:
 
         for hand_landmarks in results.multi_hand_landmarks:
 
-            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+            # draw landmarks on screen
+            mp_draw.draw_landmarks(
+                frame,
+                hand_landmarks,
+                mp_hands.HAND_CONNECTIONS
+            )
 
-            x_list = []
-            y_list = []
+            # automatically capture when mode is active
+            if capture_mode and count < max_samples:
 
-            for lm in hand_landmarks.landmark:
-                x_list.append(int(lm.x * w))
-                y_list.append(int(lm.y * h))
+                landmark_row = []
 
-            xmin, xmax = min(x_list), max(x_list)
-            ymin, ymax = min(y_list), max(y_list)
+                # extract x,y,z coordinates of all 21 landmarks
+                for lm in hand_landmarks.landmark:
+                    landmark_row.append(lm.x)
+                    landmark_row.append(lm.y)
+                    landmark_row.append(lm.z)
 
-            padding = 40
+                # append gesture label
+                landmark_row.append(gesture_name)
 
-            xmin = max(0, xmin - padding)
-            ymin = max(0, ymin - padding)
-            xmax = min(w, xmax + padding)
-            ymax = min(h, ymax + padding)
+                # save to csv
+                with open(file_path, "a", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(landmark_row)
 
-            cropped_hand = frame[ymin:ymax, xmin:xmax]
+                count += 1
 
+                print("Captured:", count)
 
-    # -------- Capture Images Automatically --------
-    if capture_mode and cropped_hand is not None and count < max_images:
+                # small delay so frames are slightly different
+                cv2.waitKey(80)
 
-        img = cv2.resize(cropped_hand, (224, 224))
+                # stop when 100 samples reached
+                if count >= max_samples:
+                    print("Captured 100 samples successfully")
+                    cap.release()
+                    cv2.destroyAllWindows()
+                    exit()
 
-        file_path = os.path.join(dataset_path, f"{count}.jpg")
-
-        cv2.imwrite(file_path, img)
-
-        count += 1
-
-        print(f"Captured {count}/{max_images}")
-
-        cv2.waitKey(100)  # small delay between captures
-
-
-    # -------- Display Info --------
+    # show capture count
     cv2.putText(
         frame,
-        f"Captured: {count}/{max_images}",
-        (10, 30),
+        f"Samples: {count}/100",
+        (10,30),
         cv2.FONT_HERSHEY_SIMPLEX,
         1,
-        (0, 255, 0),
+        (0,255,0),
         2
     )
 
-    cv2.imshow("Gesture Capture", frame)
-
+    # show camera window
+    cv2.imshow("Capture Landmarks", frame)
 
     key = cv2.waitKey(1) & 0xFF
 
-
-    # Start auto capture
+    # press C once to start auto capture
     if key == ord('c'):
         capture_mode = True
-        print("Starting automatic capture...")
+        print("Auto capture started")
 
-
-    # Quit program
-    if key == ord('q'):
-        print("Capture stopped.")
+    # ESC exits
+    if key == 27:
         break
-
-
-    if count >= max_images:
-        print("Captured 70 images. Dataset ready.")
-        break
-
 
 cap.release()
 cv2.destroyAllWindows()
